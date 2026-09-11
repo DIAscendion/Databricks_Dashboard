@@ -1,0 +1,1821 @@
+{
+  "datasets": [
+    {
+      "name": "kpi_inventory_accuracy",
+      "displayName": "KPI - Inventory Accuracy",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(AVG(inventory_accuracy_pct) * 100, 1) AS inventory_accuracy_pct\n",
+        "FROM\n",
+        "  dsg.inventory_gold.inv_accuracy_daily\n",
+        "WHERE\n",
+        "  calendar_date >= CURRENT_DATE() - INTERVAL 30 DAYS"
+      ]
+    },
+    {
+      "name": "kpi_on_hand_units",
+      "displayName": "KPI - On-Hand Units",
+      "queryLines": [
+        "SELECT\n",
+        "  SUM(on_hand_qty) AS on_hand_units\n",
+        "FROM\n",
+        "  dsg.store_inventory.fact_store_inventory"
+      ]
+    },
+    {
+      "name": "kpi_stockout_rate",
+      "displayName": "KPI - Stockout Rate",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(\n",
+        "    SUM(\n",
+        "      CASE\n",
+        "        WHEN inventory_status = 'OUT_OF_STOCK' THEN 1\n",
+        "        ELSE 0\n",
+        "      END\n",
+        "    )\n",
+        "      / COUNT(*)\n",
+        "      * 100,\n",
+        "    1\n",
+        "  ) AS stockout_rate_pct\n",
+        "FROM\n",
+        "  dsg.store_inventory.fact_store_inventory"
+      ]
+    },
+    {
+      "name": "kpi_skus_per_cart",
+      "displayName": "KPI - Avg SKUs per Cart",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(AVG(avg_skus_per_cart), 1) AS avg_skus_per_cart\n",
+        "FROM\n",
+        "  dsg.inventory_gold.inv_replenish_daily\n",
+        "WHERE\n",
+        "  calendar_date >= CURRENT_DATE() - INTERVAL 30 DAYS"
+      ]
+    },
+    {
+      "name": "kpi_nearby_stock",
+      "displayName": "KPI - Nearby Store Stock Shown",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(\n",
+        "    COUNT(DISTINCT CONCAT(athlete_store_id, '-', product_id))\n",
+        "      * 100.0\n",
+        "      / (\n",
+        "        SELECT\n",
+        "          COUNT(*)\n",
+        "        FROM\n",
+        "          dsg.store_inventory.fact_store_inventory\n",
+        "        WHERE\n",
+        "          inventory_status != 'IN_STOCK'\n",
+        "      ),\n",
+        "    1\n",
+        "  ) AS nearby_stock_shown_pct\n",
+        "FROM\n",
+        "  dsg.store_inventory.fact_nearby_store_availability"
+      ]
+    },
+    {
+      "name": "kpi_zero_result_rate",
+      "displayName": "KPI - Zero-Result Search Rate",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(SUM(zero_result_search_count) / SUM(total_search_events) * 100, 1) AS zero_result_rate_pct\n",
+        "FROM\n",
+        "  dsg.store_inventory.fact_daily_store_rollup\n",
+        "WHERE\n",
+        "  rollup_date\n",
+        "    = (\n",
+        "      SELECT\n",
+        "        MAX(rollup_date)\n",
+        "      FROM\n",
+        "        dsg.store_inventory.fact_daily_store_rollup\n",
+        "    )"
+      ]
+    },
+    {
+      "name": "kpi_rfid_coverage",
+      "displayName": "KPI - RFID Coverage",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(AVG(rfid_coverage_pct) * 100, 1) AS rfid_coverage_pct\n",
+        "FROM\n",
+        "  dsg.inventory_gold.inv_rfid_coverage_daily\n",
+        "WHERE\n",
+        "  calendar_date\n",
+        "    = (\n",
+        "      SELECT\n",
+        "        MAX(calendar_date)\n",
+        "      FROM\n",
+        "        dsg.inventory_gold.inv_rfid_coverage_daily\n",
+        "    )"
+      ]
+    },
+    {
+      "name": "store_performance",
+      "displayName": "Store Inventory Performance",
+      "queryLines": [
+        "SELECT\n",
+        "  s.store_number AS store,\n",
+        "  s.store_name AS name,\n",
+        "  s.region_description AS region,\n",
+        "  s.on_hand_units AS on_hand,\n",
+        "  ROUND(s.rfid_accuracy_pct * 100, 1) AS rfid_acc_pct,\n",
+        "  s.zero_result_rate_pct,\n",
+        "  s.oos_sku_count AS oos_skus,\n",
+        "  CASE\n",
+        "    WHEN s.alert_flag = 'Y' THEN '⚠️'\n",
+        "    ELSE ''\n",
+        "  END AS alerts,\n",
+        "  s.alert_reasons AS alert_detail\n",
+        "FROM\n",
+        "  dsg.inventory_gold.store_summary_current s\n",
+        "ORDER BY\n",
+        "  s.alert_flag DESC,\n",
+        "  s.rfid_accuracy_pct ASC"
+      ]
+    },
+    {
+      "name": "category_health",
+      "displayName": "Category Inventory Health",
+      "queryLines": [
+        "SELECT\n",
+        "  category,\n",
+        "  metric_value AS stockout_risk,\n",
+        "  health_status\n",
+        "FROM\n",
+        "  dsg.inventory_gold.inv_category_health\n",
+        "WHERE\n",
+        "  metric_name = 'stockout_risk'\n",
+        "ORDER BY\n",
+        "  CASE health_status\n",
+        "    WHEN 'Critical' THEN 1\n",
+        "    WHEN 'Risk' THEN 2\n",
+        "    ELSE 3\n",
+        "  END"
+      ]
+    },
+    {
+      "name": "filter_dimensions",
+      "displayName": "Filter Dimensions",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "  region_description AS region\n",
+        "FROM\n",
+        "  dsg.inventory_gold.store_summary_current\n",
+        "ORDER BY\n",
+        "  region"
+      ]
+    },
+    {
+      "name": "store_stockroom",
+      "displayName": "Stockroom Position",
+      "queryLines": [
+        "SELECT\n",
+        "  store_number,\n",
+        "  product_id,\n",
+        "  sku,\n",
+        "  stockroom_location_id,\n",
+        "  stockroom_location_type,\n",
+        "  located_qty,\n",
+        "  last_updated_ts_local\n",
+        "FROM\n",
+        "  dsg.inventory_gold.inv_stockroom_position\n",
+        "ORDER BY\n",
+        "  located_qty DESC"
+      ]
+    },
+    {
+      "name": "store_kpi_detail",
+      "displayName": "Store KPI Detail",
+      "queryLines": [
+        "SELECT\n",
+        "  store_number,\n",
+        "  store_name,\n",
+        "  region_description,\n",
+        "  on_hand_units,\n",
+        "  ROUND(rfid_accuracy_pct * 100, 1) AS rfid_acc_pct,\n",
+        "  zero_result_rate_pct,\n",
+        "  oos_sku_count,\n",
+        "  alert_flag,\n",
+        "  alert_reasons\n",
+        "FROM\n",
+        "  dsg.inventory_gold.store_summary_current"
+      ]
+    },
+    {
+      "name": "store_replenish_detail",
+      "displayName": "Replenishment Event Detail",
+      "queryLines": [
+        "SELECT\n",
+        "  store_number,\n",
+        "  action_ts_local AS event_time,\n",
+        "  product_id,\n",
+        "  sku,\n",
+        "  action_text,\n",
+        "  event_quantity,\n",
+        "  replenishment_session_id\n",
+        "FROM\n",
+        "  dsg.inventory_gold.inv_replenish_event_detail\n",
+        "ORDER BY\n",
+        "  action_ts_local DESC"
+      ]
+    },
+    {
+      "name": "kpi_pick_uph",
+      "displayName": "KPI - Pick UPH",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(AVG(pick_uph), 1) AS pick_uph\n",
+        "FROM\n",
+        "  dsg.stores_gold.fop_pick_uph_daily\n",
+        "WHERE\n",
+        "  calendar_date >= CURRENT_DATE() - INTERVAL 30 DAYS"
+      ]
+    },
+    {
+      "name": "kpi_scan_pct",
+      "displayName": "KPI - Product Finding Scan %",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(SUM(scan_count) / SUM(total_product_views) * 100, 1) AS scan_pct\n",
+        "FROM\n",
+        "  dsg.stores_gold.rta_product_finding_daily\n",
+        "WHERE\n",
+        "  calendar_date >= CURRENT_DATE() - INTERVAL 30 DAYS"
+      ]
+    },
+    {
+      "name": "eabcd6da",
+      "displayName": "product_finding_scan_pct",
+      "queryLines": [
+        "SELECT ROUND(SUM(scan_count) / SUM(total_product_views) * 100, 1) AS scan_pct\r\n",
+        "FROM dsg.stores_gold.rta_product_finding_daily\r\n",
+        "WHERE calendar_date >= CURRENT_DATE() - INTERVAL 30 DAYS;"
+      ]
+    },
+    {
+      "name": "ai_insight_llm",
+      "displayName": "AI Insight LLM",
+      "queryLines": [
+        "WITH acc AS (\n",
+        "  SELECT\n",
+        "    ROUND(AVG(inventory_accuracy_pct) * 100, 1) AS inv_acc\n",
+        "  FROM\n",
+        "    dsg.inventory_gold.inv_accuracy_daily\n",
+        "  WHERE\n",
+        "    calendar_date >= CURRENT_DATE() - INTERVAL 30 DAYS\n",
+        "),\n",
+        "rfid AS (\n",
+        "  SELECT\n",
+        "    ROUND(AVG(rfid_coverage_pct) * 100, 1) AS rfid_cov\n",
+        "  FROM\n",
+        "    dsg.inventory_gold.inv_rfid_coverage_daily\n",
+        "),\n",
+        "alerts AS (\n",
+        "  SELECT\n",
+        "    COUNT(\n",
+        "      CASE\n",
+        "        WHEN alert_flag = 'Y' THEN 1\n",
+        "      END\n",
+        "    ) AS alert_count,\n",
+        "    MAX(\n",
+        "      CASE\n",
+        "        WHEN alert_flag = 'Y' THEN store_name\n",
+        "      END\n",
+        "    ) AS worst_store,\n",
+        "    MAX(\n",
+        "      CASE\n",
+        "        WHEN alert_flag = 'Y' THEN alert_reasons\n",
+        "      END\n",
+        "    ) AS worst_reasons,\n",
+        "    ROUND(AVG(zero_result_rate_pct), 1) AS zr_rate,\n",
+        "    ROUND(\n",
+        "      COUNT(\n",
+        "        CASE\n",
+        "          WHEN oos_sku_count > 0 THEN 1\n",
+        "        END\n",
+        "      )\n",
+        "        * 100.0\n",
+        "        / COUNT(*),\n",
+        "      1\n",
+        "    ) AS stores_with_oos_pct\n",
+        "  FROM\n",
+        "    dsg.inventory_gold.store_summary_current\n",
+        "),\n",
+        "cat AS (\n",
+        "  SELECT\n",
+        "    CONCAT_WS(', ', COLLECT_LIST(category)) AS critical_cats\n",
+        "  FROM\n",
+        "    dsg.inventory_gold.inv_category_health\n",
+        "  WHERE\n",
+        "    metric_name = 'stockout_risk'\n",
+        "    AND health_status = 'Critical'\n",
+        "),\n",
+        "prompt AS (\n",
+        "  SELECT\n",
+        "    CONCAT(\n",
+        "      'You are a retail inventory analyst. Write a 3-sentence executive summary in plain natural language for a store operations dashboard. ',\n",
+        "      'Do not use bullet points, headers, or markdown. Write in flowing prose only. ',\n",
+        "      'Use these live KPI values: ',\n",
+        "      'Inventory Accuracy: ',\n",
+        "      acc.inv_acc,\n",
+        "      '%. ',\n",
+        "      'RFID Coverage: ',\n",
+        "      rfid.rfid_cov,\n",
+        "      '% (target is 90%). ',\n",
+        "      'Stores alerting: ',\n",
+        "      alerts.alert_count,\n",
+        "      '. ',\n",
+        "      'Most critical store: ',\n",
+        "      alerts.worst_store,\n",
+        "      ' (reasons: ',\n",
+        "      alerts.worst_reasons,\n",
+        "      '). ',\n",
+        "      'Zero-result search rate: ',\n",
+        "      alerts.zr_rate,\n",
+        "      '%. ',\n",
+        "      'Stores with OOS SKUs: ',\n",
+        "      alerts.stores_with_oos_pct,\n",
+        "      '%. ',\n",
+        "      'Critical stockout categories: ',\n",
+        "      COALESCE(NULLIF(cat.critical_cats, ''), 'none'),\n",
+        "      '. ',\n",
+        "      'Summarise the overall health, call out the biggest risks, and end with one action recommendation.'\n",
+        "    ) AS llm_prompt\n",
+        "  FROM\n",
+        "    acc CROSS JOIN rfid CROSS JOIN alerts CROSS JOIN cat\n",
+        ")\n",
+        "SELECT\n",
+        "  ai_query('databricks-meta-llama-3-3-70b-instruct', llm_prompt) AS insight\n",
+        "FROM\n",
+        "  prompt"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "198465ef",
+      "displayName": "Store Inventory Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_inv_accuracy",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_inventory_accuracy",
+                  "fields": [
+                    {
+                      "name": "inventory_accuracy_pct",
+                      "expression": "`inventory_accuracy_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Inventory Accuracy",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "inventory_accuracy_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_on_hand",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_on_hand_units",
+                  "fields": [
+                    {
+                      "name": "on_hand_units",
+                      "expression": "`on_hand_units`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "On-Hand Units",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "on_hand_units",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_zero_result",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_zero_result_rate",
+                  "fields": [
+                    {
+                      "name": "zero_result_rate_pct",
+                      "expression": "`zero_result_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Zero-Result Search Rate",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "zero_result_rate_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_stockout",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_stockout_rate",
+                  "fields": [
+                    {
+                      "name": "stockout_rate_pct",
+                      "expression": "`stockout_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Stockout Rate",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "stockout_rate_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "panel_findability_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "#### 🏃 Athlete Product Findability"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_nearby_stock",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_nearby_stock",
+                  "fields": [
+                    {
+                      "name": "nearby_stock_shown_pct",
+                      "expression": "`nearby_stock_shown_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Nearby-Store Stock Shown %",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "nearby_stock_shown_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "panel_fulfillment_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "#### ⚡ Teammate Fulfillment Efficiency"
+              ]
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_rfid_coverage",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_rfid_coverage",
+                  "fields": [
+                    {
+                      "name": "rfid_coverage_pct",
+                      "expression": "`rfid_coverage_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "RFID Cycle Count Coverage %",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "rfid_coverage_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_skus_cart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_skus_per_cart",
+                  "fields": [
+                    {
+                      "name": "avg_skus_per_cart",
+                      "expression": "`avg_skus_per_cart`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Avg SKUs Replenished / Cart",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_skus_per_cart",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "store_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "store_performance",
+                  "fields": [
+                    {
+                      "name": "store",
+                      "expression": "`store`"
+                    },
+                    {
+                      "name": "name",
+                      "expression": "`name`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "on_hand",
+                      "expression": "`on_hand`"
+                    },
+                    {
+                      "name": "rfid_acc_pct",
+                      "expression": "`rfid_acc_pct`"
+                    },
+                    {
+                      "name": "zero_result_rate_pct",
+                      "expression": "`zero_result_rate_pct`"
+                    },
+                    {
+                      "name": "oos_skus",
+                      "expression": "`oos_skus`"
+                    },
+                    {
+                      "name": "alerts",
+                      "expression": "`alerts`"
+                    },
+                    {
+                      "name": "alert_detail",
+                      "expression": "`alert_detail`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Store Inventory Performance",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "store",
+                    "contentAlignment": "left",
+                    "displayName": "Store"
+                  },
+                  {
+                    "fieldName": "name",
+                    "displayName": "Name"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "on_hand",
+                    "contentAlignment": "right",
+                    "displayName": "On-hand"
+                  },
+                  {
+                    "fieldName": "rfid_acc_pct",
+                    "contentAlignment": "right",
+                    "displayName": "RFID Acc. (%)",
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "90"
+                            },
+                            "operator": "<"
+                          },
+                          "foregroundColor": "#D32F2F",
+                          "backgroundColor": "#FFEBEE"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "95"
+                            },
+                            "operator": "<"
+                          },
+                          "foregroundColor": "#F57C00",
+                          "backgroundColor": "#FFF3E0"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "95"
+                            },
+                            "operator": ">="
+                          },
+                          "foregroundColor": "#2E7D32",
+                          "backgroundColor": "#E8F5E9"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "zero_result_rate_pct",
+                    "contentAlignment": "right",
+                    "displayName": "Zero-result (%)",
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "9"
+                            },
+                            "operator": ">"
+                          },
+                          "foregroundColor": "#D32F2F",
+                          "backgroundColor": "#FFEBEE"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "6"
+                            },
+                            "operator": ">="
+                          },
+                          "foregroundColor": "#F57C00",
+                          "backgroundColor": "#FFF3E0"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "6"
+                            },
+                            "operator": "<"
+                          },
+                          "foregroundColor": "#2E7D32",
+                          "backgroundColor": "#E8F5E9"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "oos_skus",
+                    "contentAlignment": "right",
+                    "displayName": "OOS SKUs"
+                  },
+                  {
+                    "fieldName": "alerts",
+                    "contentAlignment": "center",
+                    "displayName": "Alerts"
+                  },
+                  {
+                    "fieldName": "alert_detail",
+                    "displayName": "Alert Detail"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "category_health_grid",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "category_health",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "stockout_risk",
+                      "expression": "`stockout_risk`"
+                    },
+                    {
+                      "name": "health_status",
+                      "expression": "`health_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Category Inventory Health",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "category",
+                    "displayName": "Category"
+                  },
+                  {
+                    "fieldName": "stockout_risk",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 1
+                      }
+                    },
+                    "displayName": "Stockout Risk"
+                  },
+                  {
+                    "fieldName": "health_status",
+                    "contentAlignment": "center",
+                    "displayName": "Health Status",
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "Critical"
+                            },
+                            "operator": "="
+                          },
+                          "foregroundColor": "#FFFFFF",
+                          "backgroundColor": "#D32F2F"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "Risk"
+                            },
+                            "operator": "="
+                          },
+                          "foregroundColor": "#000000",
+                          "backgroundColor": "#FFB74D"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "Healthy"
+                            },
+                            "operator": "="
+                          },
+                          "foregroundColor": "#FFFFFF",
+                          "backgroundColor": "#2E7D32"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_region",
+            "queries": [
+              {
+                "name": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2c45cc5115d942b726f7731e8a1_region",
+                "query": {
+                  "datasetName": "store_performance",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "region_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "queryName": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2c45cc5115d942b726f7731e8a1_region"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "header_store_perf",
+            "multilineTextboxSpec": {
+              "lines": [
+                "#### 📦 Category-Level Inventory Health"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_scan_pct",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_scan_pct",
+                  "fields": [
+                    {
+                      "name": "scan_pct",
+                      "expression": "`scan_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Product Finding: Scan %"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "scan_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_pick_uph",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_pick_uph",
+                  "fields": [
+                    {
+                      "name": "pick_uph",
+                      "expression": "`pick_uph`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Pick UPH (BOPIS/SDD)"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pick_uph",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ai_insight_llm",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_insight_llm",
+                  "fields": [
+                    {
+                      "name": "insight",
+                      "expression": "`insight`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "🔍 Inventory Intelligence Snapshot"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "insight",
+                    "displayName": ""
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 12,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "store_detail",
+      "displayName": "Store Detail Drill-Down",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter_store",
+            "queries": [
+              {
+                "name": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2ccd0c91023ab2ebdad00d277af_store_number",
+                "query": {
+                  "datasetName": "store_kpi_detail",
+                  "fields": [
+                    {
+                      "name": "store_number",
+                      "expression": "`store_number`"
+                    },
+                    {
+                      "name": "store_number_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2ccd1951596b8d23700e15bbf44_store_number",
+                "query": {
+                  "datasetName": "store_replenish_detail",
+                  "fields": [
+                    {
+                      "name": "store_number",
+                      "expression": "`store_number`"
+                    },
+                    {
+                      "name": "store_number_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2ccd084120484881b7b53106471_store_number",
+                "query": {
+                  "datasetName": "store_stockroom",
+                  "fields": [
+                    {
+                      "name": "store_number",
+                      "expression": "`store_number`"
+                    },
+                    {
+                      "name": "store_number_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Select Store",
+                  "fields": []
+                }
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "store_number",
+                    "queryName": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2ccd0c91023ab2ebdad00d277af_store_number"
+                  },
+                  {
+                    "fieldName": "store_number",
+                    "queryName": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2ccd1951596b8d23700e15bbf44_store_number"
+                  },
+                  {
+                    "fieldName": "store_number",
+                    "queryName": "dashboards/01f1a2c43141177885d9e18c2fa9187c/datasets/01f1a2ccd084120484881b7b53106471_store_number"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_store_name",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "store_kpi_detail",
+                  "fields": [
+                    {
+                      "name": "store_name",
+                      "expression": "`store_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Store Name",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "store_name",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_rfid",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "store_kpi_detail",
+                  "fields": [
+                    {
+                      "name": "rfid_acc_pct",
+                      "expression": "`rfid_acc_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "RFID Accuracy %",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "rfid_acc_pct",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_oos",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "store_kpi_detail",
+                  "fields": [
+                    {
+                      "name": "oos_sku_count",
+                      "expression": "`oos_sku_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "OOS SKUs",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "oos_sku_count",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "replenish_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "store_replenish_detail",
+                  "fields": [
+                    {
+                      "name": "store_number",
+                      "expression": "`store_number`"
+                    },
+                    {
+                      "name": "event_time",
+                      "expression": "`event_time`"
+                    },
+                    {
+                      "name": "product_id",
+                      "expression": "`product_id`"
+                    },
+                    {
+                      "name": "sku",
+                      "expression": "`sku`"
+                    },
+                    {
+                      "name": "action_text",
+                      "expression": "`action_text`"
+                    },
+                    {
+                      "name": "event_quantity",
+                      "expression": "`event_quantity`"
+                    },
+                    {
+                      "name": "replenishment_session_id",
+                      "expression": "`replenishment_session_id`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Replenishment History",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "store_number",
+                    "displayName": "Store"
+                  },
+                  {
+                    "fieldName": "event_time",
+                    "displayName": "Time"
+                  },
+                  {
+                    "fieldName": "product_id",
+                    "displayName": "Product ID"
+                  },
+                  {
+                    "fieldName": "sku",
+                    "displayName": "SKU"
+                  },
+                  {
+                    "fieldName": "action_text",
+                    "displayName": "Action"
+                  },
+                  {
+                    "fieldName": "event_quantity",
+                    "contentAlignment": "right",
+                    "displayName": "Qty"
+                  },
+                  {
+                    "fieldName": "replenishment_session_id",
+                    "displayName": "Session"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "stockroom_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "store_stockroom",
+                  "fields": [
+                    {
+                      "name": "store_number",
+                      "expression": "`store_number`"
+                    },
+                    {
+                      "name": "product_id",
+                      "expression": "`product_id`"
+                    },
+                    {
+                      "name": "sku",
+                      "expression": "`sku`"
+                    },
+                    {
+                      "name": "stockroom_location_id",
+                      "expression": "`stockroom_location_id`"
+                    },
+                    {
+                      "name": "stockroom_location_type",
+                      "expression": "`stockroom_location_type`"
+                    },
+                    {
+                      "name": "located_qty",
+                      "expression": "`located_qty`"
+                    },
+                    {
+                      "name": "last_updated_ts_local",
+                      "expression": "`last_updated_ts_local`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Stockroom Positions",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "store_number",
+                    "displayName": "Store"
+                  },
+                  {
+                    "fieldName": "product_id",
+                    "displayName": "Product ID"
+                  },
+                  {
+                    "fieldName": "sku",
+                    "displayName": "SKU"
+                  },
+                  {
+                    "fieldName": "stockroom_location_id",
+                    "displayName": "Location"
+                  },
+                  {
+                    "fieldName": "stockroom_location_type",
+                    "displayName": "Type"
+                  },
+                  {
+                    "fieldName": "located_qty",
+                    "contentAlignment": "right",
+                    "displayName": "Qty"
+                  },
+                  {
+                    "fieldName": "last_updated_ts_local",
+                    "displayName": "Last Confirmed"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F0FAF4"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF"
+      },
+      "widgetBorderColor": {
+        "light": "#C8E6D4"
+      },
+      "selectionColor": {
+        "light": "#2E7D32"
+      },
+      "visualizationColors": [
+        "#2E7D32",
+        "#1565C0",
+        "#F57C00",
+        "#C62828",
+        "#6A1B9A",
+        "#00838F",
+        "#558B2F",
+        "#AD1457"
+      ],
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED",
+      "widgetPadding": 16,
+      "widgetMargin": 8,
+      "widgetCornerRadius": 12,
+      "widgetShadow": 10,
+      "fontSettings": {
+        "base": {
+          "fontFamily": "Montserrat",
+          "fontColor": {
+            "light": "#2D3748"
+          },
+          "fontSize": 11
+        },
+        "widgetTitle": {
+          "fontFamily": "Montserrat",
+          "fontColor": {
+            "light": "#1A3C2A"
+          },
+          "fontSize": 12,
+          "fontWeight": 600
+        },
+        "fieldTitle": {
+          "fontFamily": "Montserrat",
+          "fontColor": {
+            "light": "#5A7A65"
+          },
+          "fontSize": 11
+        },
+        "fieldValue": {
+          "fontFamily": "Montserrat",
+          "fontColor": {
+            "light": "#1A3C2A"
+          },
+          "fontWeight": 600
+        }
+      },
+      "gridLineColor": {
+        "light": "#E2F0E8"
+      },
+      "axisLineColor": {
+        "light": "#A8D5B5"
+      },
+      "visualizationColorMappings": [
+        {
+          "value": "Critical",
+          "color": "#C62828"
+        },
+        {
+          "value": "Risk",
+          "color": "#F57C00"
+        },
+        {
+          "value": "Healthy",
+          "color": "#2E7D32"
+        }
+      ]
+    },
+    "applyModeEnabled": false
+  }
+}
