@@ -1,443 +1,742 @@
 _____________________________________________
 ## *Author*: AAVA
 ## *Created on*:   
-## *Description*: Databricks Lakeview Dashboard visuals recommender for Rental Revenue-to-Cash executive, revenue, AR, cash application, and credit risk reporting.
+## *Description*: Databricks Lakeview dashboard visuals recommender for Rental Revenue-to-Cash reporting across revenue, AR, cash application, and credit risk domains.
 ## *Version*: 1
 ## *Updated on*: 
 _____________________________________________
 
 # Databricks Lakeview Dashboard Visuals Recommender
 
+This document analyzes the Rental Revenue-to-Cash reporting requirements and the Silver physical model to recommend Databricks SQL queries, reusable analytical datasets, and Lakeview Dashboard visuals that best support executive scorecards, billing performance, AR aging, cash application, and customer credit risk monitoring.
+
 Print the URL : "https://github.com/DIAscendion/Databricks_Dashboard/tree/main/DI_Databricks_Dashboard_Visuals_Recommender"
 
-## 1. Input Summary
-This recommender translates the Rental Revenue-to-Cash analytical reporting requirements and the Silver physical data model into Databricks SQL datasets, reusable semantic views, and Lakeview Dashboard visuals. The goal is to support executive scorecards, billing analysis, AR aging, cash application monitoring, and customer credit risk management across network, region, branch, sales rep, collector, customer, contract, and invoice levels.
+## 1. Input Analysis Summary
 
-## 2. Source Analysis
+### 1.1 Source Inputs Reviewed
 
-### 2.1 Primary Source Tables from Silver Layer
-| Source Table | Purpose | Key Fields |
+| Input File | Purpose | Key Contribution to Dashboard Recommendations |
 |---|---|---|
-| `silver.si_rental_contracts` | Contract and branch/sales context for rental activity | `contract_id`, `customer_id`, `branch_code`, `sales_rep_id`, `equipment_class`, `contract_start_date`, `contract_end_date`, `contract_status`, `daily_rate` |
-| `silver.si_invoices` | Invoice, billing, and AR basis | `invoice_id`, `contract_id`, `customer_id`, `invoice_date`, `due_date`, `invoice_amount`, `tax_amount`, `invoice_type`, `currency`, `aging_bucket`, `days_past_due` |
-| `silver.si_cash_receipts` | Receipt and payment application basis | `receipt_id`, `invoice_id`, `customer_id`, `receipt_date`, `payment_amount`, `payment_method`, `match_status`, `unapplied_payment_amount` |
-| `silver.si_customer_master` | Customer credit and status context | `customer_id`, `customer_name`, `credit_terms`, `credit_limit`, `customer_since`, `customer_status`, `over_limit_indicator` |
-| `silver.si_branch_employee` | Branch, region, sales rep, and collector alignment | `employee_id`, `employee_name`, `role`, `branch_code`, `region`, `collector_id`, `effective_date` |
-| `silver.si_process_audit` | Operational observability for data quality and freshness | `pipeline_name`, `target_table`, `process_start_timestamp`, `process_end_timestamp`, `processing_status` |
-| `silver.si_data_quality_errors` | Rejected-record and validation diagnostics | `source_table`, `validation_rule_name`, `error_description`, `error_severity`, `detected_timestamp` |
+| `DI_Databricks_Silver_Model_Physical/Databricks_Silver_Model_Physical_1.md` | Silver physical model for cleansed and conformed Rental Revenue-to-Cash data | Provided source tables, join paths, core fields, partitioning hints, and Delta optimization guidance |
+| `Input/Rental_Revenue_to_Cash_Reports.txt` | Business reporting requirements for consolidated AR and revenue dashboards | Defined KPIs, dimensions, drill paths, validations, and business layout expectations |
 
-### 2.2 Recommended Gold / Semantic Views for Dashboard Consumption
-| Recommended Dataset / View | Purpose | Grain |
+### 1.2 Identified Data Sources
+
+| Layer | Table | Role in Reporting |
 |---|---|---|
-| `gold.vw_exec_health_scorecard` | Consolidated executive scorecard by branch/date/period | One row per branch, date, period type |
-| `gold.vw_rental_revenue_billing` | Revenue and billing metrics by branch/sales rep/equipment class | One row per branch, period, sales rep, equipment class |
-| `gold.vw_ar_aging_snapshot` | AR snapshot by branch/customer/invoice/snapshot date | One row per invoice per snapshot date |
-| `gold.vw_cash_application_perf` | Collector and payment application performance | One row per receipt or collector-period |
-| `gold.vw_customer_credit_risk` | Customer-level risk and exposure | One row per customer per snapshot date |
-| `gold.vw_dashboard_filter_dimensions` | Shared dimensions for Lakeview filters | Dimension rows for branch, region, equipment class, status, date |
+| Silver | `silver.si_rental_contracts` | Contract, branch, sales rep, equipment class, contract lifecycle context |
+| Silver | `silver.si_invoices` | Billing, invoice dates, due dates, invoice amounts, aging support |
+| Silver | `silver.si_cash_receipts` | Cash collection and application metrics |
+| Silver | `silver.si_customer_master` | Customer profile, credit terms, credit limit, status |
+| Silver | `silver.si_branch_employee` | Sales rep / collector / branch / region hierarchy |
+| Silver | `silver.si_data_quality_errors` | Monitoring data quality exceptions for reporting reliability |
+| Silver | `silver.si_process_audit` | Pipeline observability and freshness validation |
+| Gold / Recommended | `gold.fct_rental_revenue` | Revenue and billing fact for aggregated dashboard reporting |
+| Gold / Recommended | `gold.fct_ar_aging` | AR aging fact at invoice snapshot grain |
+| Gold / Recommended | `gold.fct_cash_application` | Cash application and collector performance fact |
+| Gold / Recommended | `gold.fct_credit_risk` | Customer exposure and credit risk fact |
+| Gold / Recommended | `gold.dim_branch`, `gold.dim_customer`, `gold.dim_date`, `gold.dim_employee`, `gold.dim_contract` | Conformed dimensions for reusable Lakeview datasets |
 
-### 2.3 Required Joins
-| Left Table | Join Key | Right Table | Purpose |
+### 1.3 Target Analytical Models Recommended
+
+| Model Type | Suggested Name | Grain | Primary Use |
 |---|---|---|---|
-| `silver.si_invoices` | `contract_id` | `silver.si_rental_contracts` | Connect invoices to contract, branch, and equipment context |
-| `silver.si_invoices` | `customer_id` | `silver.si_customer_master` | Add customer status, credit terms, and limit context |
-| `silver.si_cash_receipts` | `invoice_id` | `silver.si_invoices` | Measure payment application against billed invoices |
-| `silver.si_rental_contracts` | `sales_rep_id = employee_id` | `silver.si_branch_employee` | Derive sales rep and region attributes |
-| `silver.si_rental_contracts` | `branch_code` | `silver.si_branch_employee` | Support branch-region hierarchy |
-| `silver.si_customer_master` | `customer_id` | `gold.vw_ar_aging_snapshot` | Add risk context to AR snapshots |
+| Fact | `gold.fct_rental_revenue` | Branch, date, sales rep, contract, equipment class, invoice | Revenue, billings, ADR, credit memo rate |
+| Fact | `gold.fct_ar_aging` | Snapshot date, customer, invoice | AR aging, DSO, AR 90+ %, branch/collector prioritization |
+| Fact | `gold.fct_cash_application` | Receipt or receipt-application line | Cash collected, unapplied cash, days to pay, CEI support |
+| Fact | `gold.fct_credit_risk` | Customer, snapshot date | Credit utilization, over-limit, suspended exposure |
+| Aggregate | `gold.agg_exec_scorecard_daily` | Branch, date, period type | Executive health score and domain scorecards |
+| Aggregate | `gold.agg_exec_scorecard_weekly` | Branch, week | Weekly rollup with trend comparability |
 
-### 2.4 Key Filters and Business Rules
-- Include active organization hierarchy only for selected analysis date.
-- Exclude cancelled or zero-duration contracts from ADR calculations.
-- Ensure standard invoice amounts are non-negative and credit memos are negative.
-- Aging buckets must remain fixed as `0-30`, `31-60`, `61-90`, `90+`.
-- Separate unapplied cash from applied cash; do not silently suppress it.
-- Handle null or zero denominators in DSO, CEI, credit utilization, and percentage-based calculations.
+### 1.4 Core Transformations, Joins, Aggregations, and Filters
 
-## 3. Visual Recommendations
+| Category | Recommendation |
+|---|---|
+| Core Joins | Join contracts to customer and branch employee; invoices to contracts and customers; cash receipts to invoices and customers; branch hierarchy from employee/branch mapping |
+| Derived Metrics | Net billings, ADR, revenue per contract, DSO, AR 90+ %, CEI, average days to pay, credit utilization %, suspended exposure flags |
+| Snapshot Logic | AR aging and credit risk should be built as periodic snapshots by `snapshot_date` |
+| Common Filters | Region, branch, date period, sales rep, collector, equipment class, customer status, contract status, aging bucket, payment match status |
+| Reusable Hierarchies | Network -> Region -> Branch -> Sales Rep/Collector -> Customer/Contract/Invoice |
+| Output Format | Curated Lakeview datasets backed by Gold tables or aggregate views for fast dashboard rendering |
 
-### 3.1 Revenue-to-Cash Executive Scorecard
-- **Data Element:** Overall and domain health monitoring by branch and region
+## 2. Visual Recommendations
+
+### 2.1 Revenue-to-Cash Executive Scorecard
+
+- **Data Element:** Overall Revenue-to-Cash Health Score and domain health by branch/region/date
 - **SQL Query:**
 ```sql
-WITH revenue_base AS (
+WITH revenue_metrics AS (
   SELECT
-      be.region,
-      rc.branch_code,
-      DATE(i.invoice_date) AS metric_date,
-      SUM(CASE WHEN i.invoice_type <> 'CREDIT_MEMO' THEN i.invoice_amount ELSE 0 END) AS gross_billings,
-      SUM(CASE WHEN i.invoice_type = 'CREDIT_MEMO' THEN ABS(i.invoice_amount) ELSE 0 END) AS credit_memos,
-      SUM(i.invoice_amount) AS net_billings
-  FROM silver.si_invoices i
-  LEFT JOIN silver.si_rental_contracts rc
-    ON i.contract_id = rc.contract_id
-  LEFT JOIN silver.si_branch_employee be
-    ON rc.branch_code = be.branch_code
-  GROUP BY be.region, rc.branch_code, DATE(i.invoice_date)
-),
-ar_base AS (
-  SELECT
-      be.region,
-      rc.branch_code,
-      CURRENT_DATE() AS snapshot_date,
-      SUM(CASE WHEN COALESCE(i.days_past_due, 0) > 0 THEN i.invoice_amount ELSE 0 END) AS total_ar_outstanding,
-      SUM(CASE WHEN COALESCE(i.days_past_due, 0) > 90 THEN i.invoice_amount ELSE 0 END) AS ar_90_plus
-  FROM silver.si_invoices i
-  LEFT JOIN silver.si_rental_contracts rc
-    ON i.contract_id = rc.contract_id
-  LEFT JOIN silver.si_branch_employee be
-    ON rc.branch_code = be.branch_code
-  GROUP BY be.region, rc.branch_code
-),
-cash_base AS (
-  SELECT
-      be.region,
-      rc.branch_code,
-      DATE(cr.receipt_date) AS metric_date,
-      SUM(cr.payment_amount) AS total_payments,
-      SUM(COALESCE(cr.unapplied_payment_amount, 0)) AS unapplied_cash
-  FROM silver.si_cash_receipts cr
-  LEFT JOIN silver.si_invoices i
-    ON cr.invoice_id = i.invoice_id
-  LEFT JOIN silver.si_rental_contracts rc
-    ON i.contract_id = rc.contract_id
-  LEFT JOIN silver.si_branch_employee be
-    ON rc.branch_code = be.branch_code
-  GROUP BY be.region, rc.branch_code, DATE(cr.receipt_date)
-)
-SELECT
-    r.region,
-    r.branch_code,
-    r.metric_date,
-    r.net_billings AS rental_revenue,
-    a.total_ar_outstanding,
-    CASE WHEN a.total_ar_outstanding = 0 THEN 0 ELSE ROUND((a.ar_90_plus / a.total_ar_outstanding) * 100, 2) END AS ar_90_plus_pct,
-    CASE WHEN c.total_payments = 0 THEN 0 ELSE ROUND((c.unapplied_cash / c.total_payments) * 100, 2) END AS unapplied_cash_pct,
-    GREATEST(0, LEAST(100,
-      ROUND(
-        (0.35 * LEAST(100, r.net_billings)) +
-        (0.25 * (100 - CASE WHEN a.total_ar_outstanding = 0 THEN 0 ELSE (a.ar_90_plus / a.total_ar_outstanding) * 100 END)) +
-        (0.20 * (100 - CASE WHEN c.total_payments = 0 THEN 0 ELSE (c.unapplied_cash / c.total_payments) * 100 END)) +
-        (0.20 * 100), 2)
-    )) AS revenue_to_cash_health_score
-FROM revenue_base r
-LEFT JOIN ar_base a
-  ON r.region = a.region AND r.branch_code = a.branch_code
-LEFT JOIN cash_base c
-  ON r.region = c.region AND r.branch_code = c.branch_code AND r.metric_date = c.metric_date;
-```
-- **Recommended LVDash Widget:** KPI cards + bullet/goal cards + line chart + ranked table
-- **Data Fields:** `region`, `branch_code`, `metric_date`, `rental_revenue`, `total_ar_outstanding`, `ar_90_plus_pct`, `unapplied_cash_pct`, `revenue_to_cash_health_score`
-- **Calculations:** Health Score, AR 90+ %, revenue trend, unapplied cash %, optional DSO, CEI
-- **Interactivity:** Region filter, branch filter, date granularity parameter, click-through from KPI card to detailed AR or revenue tab, hierarchy drill network -> region -> branch
-- **Justification:** KPI cards surface daily/weekly executive signals quickly, line charts show trend direction, and a ranked table identifies branches/customers driving deterioration.
-- **Optimization Tips:** Build a materialized aggregate by branch/date, cache result sets for executive tiles, partition by period date, and Z-order by `branch_code`, `region`.
-
-### 3.2 Rental Revenue & Billing Performance
-- **Data Element:** Revenue, gross/net billings, contract yield, and credit memo quality
-- **SQL Query:**
-```sql
-SELECT
-    be.region,
-    rc.branch_code,
-    rc.sales_rep_id,
-    rc.equipment_class,
-    DATE_TRUNC('month', i.invoice_date) AS period_month,
-    COUNT(DISTINCT rc.contract_id) AS contract_count,
-    COUNT(DISTINCT i.invoice_id) AS invoice_count,
-    SUM(CASE WHEN i.invoice_type <> 'CREDIT_MEMO' THEN i.invoice_amount ELSE 0 END) AS gross_billings,
-    SUM(CASE WHEN i.invoice_type = 'CREDIT_MEMO' THEN ABS(i.invoice_amount) ELSE 0 END) AS credit_memo_amount,
-    SUM(i.invoice_amount) AS net_billings,
-    SUM(i.invoice_amount) AS rental_revenue,
-    CASE WHEN SUM(DATEDIFF(COALESCE(rc.contract_end_date, CURRENT_DATE()), rc.contract_start_date)) = 0 THEN NULL
-         ELSE ROUND(SUM(i.invoice_amount) / SUM(DATEDIFF(COALESCE(rc.contract_end_date, CURRENT_DATE()), rc.contract_start_date)), 2) END AS average_daily_rate,
-    CASE WHEN COUNT(DISTINCT rc.contract_id) = 0 THEN NULL
-         ELSE ROUND(SUM(i.invoice_amount) / COUNT(DISTINCT rc.contract_id), 2) END AS revenue_per_contract,
-    CASE WHEN SUM(CASE WHEN i.invoice_type <> 'CREDIT_MEMO' THEN i.invoice_amount ELSE 0 END) = 0 THEN 0
-         ELSE ROUND(
-           SUM(CASE WHEN i.invoice_type = 'CREDIT_MEMO' THEN ABS(i.invoice_amount) ELSE 0 END)
-           / SUM(CASE WHEN i.invoice_type <> 'CREDIT_MEMO' THEN i.invoice_amount ELSE 0 END) * 100, 2) END AS credit_memo_rate
-FROM silver.si_invoices i
-LEFT JOIN silver.si_rental_contracts rc
-  ON i.contract_id = rc.contract_id
-LEFT JOIN silver.si_branch_employee be
-  ON rc.branch_code = be.branch_code
-WHERE COALESCE(rc.contract_status, 'OPEN') <> 'CANCELLED'
-GROUP BY be.region, rc.branch_code, rc.sales_rep_id, rc.equipment_class, DATE_TRUNC('month', i.invoice_date);
-```
-- **Recommended LVDash Widget:** Combo chart, stacked bar chart, KPI strip, detail table
-- **Data Fields:** `region`, `branch_code`, `sales_rep_id`, `equipment_class`, `period_month`, `gross_billings`, `credit_memo_amount`, `net_billings`, `rental_revenue`, `average_daily_rate`, `revenue_per_contract`, `credit_memo_rate`
-- **Calculations:** Net Billings, ADR, Revenue per Contract, Credit Memo Rate, Invoice Count
-- **Interactivity:** Drill region -> branch -> sales rep -> contract, equipment class filter, contract status filter, drill-through to invoice and contract details
-- **Justification:** Combo chart is ideal for comparing revenue bars with rate trend lines, while a detailed table supports operational follow-up at sales rep/contract level.
-- **Optimization Tips:** Create monthly summary tables, persist equipment-class mix datasets, prune by invoice date, and reuse the same dataset across KPI and chart widgets.
-
-### 3.3 AR Aging & Collections
-- **Data Element:** AR exposure and aging prioritization by branch, collector, customer, and invoice
-- **SQL Query:**
-```sql
-WITH ar_snapshot AS (
-  SELECT
-      be.region,
-      rc.branch_code,
-      COALESCE(emp.collector_id, rc.sales_rep_id) AS collector_id,
-      i.customer_id,
-      cm.customer_name,
-      i.invoice_id,
-      i.invoice_date,
-      i.due_date,
-      CURRENT_DATE() AS snapshot_date,
-      i.invoice_amount AS outstanding_amount,
-      DATEDIFF(CURRENT_DATE(), i.due_date) AS days_past_due,
-      CASE
-        WHEN DATEDIFF(CURRENT_DATE(), i.due_date) <= 30 THEN '0-30'
-        WHEN DATEDIFF(CURRENT_DATE(), i.due_date) <= 60 THEN '31-60'
-        WHEN DATEDIFF(CURRENT_DATE(), i.due_date) <= 90 THEN '61-90'
-        ELSE '90+'
-      END AS aging_bucket
-  FROM silver.si_invoices i
-  LEFT JOIN silver.si_rental_contracts rc
-    ON i.contract_id = rc.contract_id
-  LEFT JOIN silver.si_customer_master cm
-    ON i.customer_id = cm.customer_id
-  LEFT JOIN silver.si_branch_employee be
-    ON rc.branch_code = be.branch_code
-  LEFT JOIN silver.si_branch_employee emp
-    ON rc.sales_rep_id = emp.employee_id
-  WHERE i.invoice_amount > 0
-)
-SELECT
-    region,
     branch_code,
-    collector_id,
-    customer_id,
-    customer_name,
-    snapshot_date,
-    aging_bucket,
-    SUM(outstanding_amount) AS total_ar_outstanding,
-    SUM(CASE WHEN aging_bucket = '90+' THEN outstanding_amount ELSE 0 END) AS ar_90_plus_amount,
-    CASE WHEN SUM(outstanding_amount) = 0 THEN 0
-         ELSE ROUND(SUM(CASE WHEN aging_bucket = '90+' THEN outstanding_amount ELSE 0 END) / SUM(outstanding_amount) * 100, 2) END AS ar_90_plus_pct
-FROM ar_snapshot
-GROUP BY region, branch_code, collector_id, customer_id, customer_name, snapshot_date, aging_bucket;
-```
-- **Recommended LVDash Widget:** Stacked bar chart, line chart, KPI cards, invoice-level table, pivot table
-- **Data Fields:** `region`, `branch_code`, `collector_id`, `customer_id`, `customer_name`, `snapshot_date`, `aging_bucket`, `total_ar_outstanding`, `ar_90_plus_amount`, `ar_90_plus_pct`
-- **Calculations:** Aging Bucket, Total AR Outstanding, AR 90+ %, DSO, Best Possible DSO
-- **Interactivity:** Aging bucket cross-filter, branch and collector slicers, drill-through to invoice list, time grain parameter snapshot/week/month
-- **Justification:** Stacked bars clearly compare aging mix across branches, while KPI cards and invoice tables support both executive and collector-level analysis.
-- **Optimization Tips:** Materialize daily AR snapshots, avoid recalculating aging on raw invoice data for every render, partition snapshot facts by `snapshot_date`, and cache common branch-level summaries.
-
-### 3.4 Cash Application & Collector Performance
-- **Data Element:** Collection effectiveness, days to pay, and unapplied cash operations
-- **SQL Query:**
-```sql
-SELECT
-    be.region,
-    rc.branch_code,
-    COALESCE(emp.collector_id, rc.sales_rep_id) AS collector_id,
-    DATE_TRUNC('week', cr.receipt_date) AS period_week,
-    cr.payment_method,
-    SUM(cr.payment_amount) AS cash_collected,
-    SUM(COALESCE(cr.unapplied_payment_amount, 0)) AS unapplied_cash_amount,
-    CASE WHEN SUM(cr.payment_amount) = 0 THEN 0
-         ELSE ROUND(SUM(COALESCE(cr.unapplied_payment_amount, 0)) / SUM(cr.payment_amount) * 100, 2) END AS unapplied_cash_pct,
-    AVG(DATEDIFF(cr.receipt_date, i.invoice_date)) AS avg_days_to_pay,
-    AVG(CASE WHEN cr.receipt_date <= i.due_date THEN 1 ELSE 0 END) * 100 AS pct_invoices_paid_on_time,
-    ROUND(
-      (
-        (SUM(i.invoice_amount) + SUM(i.invoice_amount) - SUM(CASE WHEN i.days_past_due > 0 THEN i.invoice_amount ELSE 0 END)) /
-        NULLIF((SUM(i.invoice_amount) + SUM(i.invoice_amount) - SUM(CASE WHEN i.days_past_due <= 30 THEN i.invoice_amount ELSE 0 END)), 0)
-      ) * 100, 2
-    ) AS cei
-FROM silver.si_cash_receipts cr
-LEFT JOIN silver.si_invoices i
-  ON cr.invoice_id = i.invoice_id
-LEFT JOIN silver.si_rental_contracts rc
-  ON i.contract_id = rc.contract_id
-LEFT JOIN silver.si_branch_employee be
-  ON rc.branch_code = be.branch_code
-LEFT JOIN silver.si_branch_employee emp
-  ON rc.sales_rep_id = emp.employee_id
-GROUP BY be.region, rc.branch_code, COALESCE(emp.collector_id, rc.sales_rep_id), DATE_TRUNC('week', cr.receipt_date), cr.payment_method;
-```
-- **Recommended LVDash Widget:** Ranked horizontal bar chart, KPI cards, trend line, unapplied cash table
-- **Data Fields:** `region`, `branch_code`, `collector_id`, `period_week`, `payment_method`, `cash_collected`, `unapplied_cash_amount`, `unapplied_cash_pct`, `avg_days_to_pay`, `pct_invoices_paid_on_time`, `cei`
-- **Calculations:** CEI, Average Days to Pay, % Invoices Paid On Time, Unapplied Cash $, Unapplied Cash %
-- **Interactivity:** Collector filter, payment method filter, click on leaderboard bar to cross-filter detail table, week/month parameter, drill-through to payment/invoice detail
-- **Justification:** A ranked horizontal bar is ideal for comparing collectors, while KPI cards and trend lines expose operational efficiency and movement over time.
-- **Optimization Tips:** Precompute weekly collector metrics, isolate unapplied receipts into a narrow helper dataset, cache performance summaries, and tune SQL warehouse size for concurrent leaderboard usage.
-
-### 3.5 Customer Credit Risk Report
-- **Data Element:** Customer credit exposure, over-limit behavior, and suspended exposure
-- **SQL Query:**
-```sql
-WITH customer_exposure AS (
+    region,
+    date_day,
+    SUM(net_billings) AS rental_revenue,
+    SUM(CASE WHEN gross_billings <> 0 THEN credit_memo_amount ELSE 0 END) AS credit_memo_amount
+  FROM gold.fct_rental_revenue
+  GROUP BY branch_code, region, date_day
+),
+ar_metrics AS (
   SELECT
-      be.region,
-      rc.branch_code,
-      cm.customer_id,
-      cm.customer_name,
-      cm.credit_terms,
-      cm.credit_limit,
-      cm.customer_status,
-      cm.customer_since,
-      SUM(CASE WHEN i.invoice_amount > 0 THEN i.invoice_amount ELSE 0 END) AS outstanding_ar,
-      SUM(CASE WHEN COALESCE(i.days_past_due, 0) > 90 THEN i.invoice_amount ELSE 0 END) AS ar_90_plus_amount,
-      COUNT(DISTINCT CASE WHEN COALESCE(rc.contract_status, 'OPEN') = 'OPEN' THEN rc.contract_id END) AS open_contract_count,
-      SUM(CASE WHEN COALESCE(rc.contract_status, 'OPEN') = 'OPEN' THEN i.invoice_amount ELSE 0 END) AS open_contract_value
-  FROM silver.si_customer_master cm
-  LEFT JOIN silver.si_invoices i
-    ON cm.customer_id = i.customer_id
-  LEFT JOIN silver.si_rental_contracts rc
-    ON i.contract_id = rc.contract_id
-  LEFT JOIN silver.si_branch_employee be
-    ON rc.branch_code = be.branch_code
-  GROUP BY be.region, rc.branch_code, cm.customer_id, cm.customer_name, cm.credit_terms, cm.credit_limit, cm.customer_status, cm.customer_since
+    branch_code,
+    region,
+    snapshot_date AS date_day,
+    SUM(ar_outstanding_amount) AS total_ar,
+    SUM(CASE WHEN aging_bucket = '90+' THEN ar_outstanding_amount ELSE 0 END) AS ar_90_plus,
+    CASE
+      WHEN SUM(credit_sales_amount) = 0 THEN NULL
+      ELSE (SUM(ar_outstanding_amount) / SUM(credit_sales_amount)) * MAX(days_in_period)
+    END AS dso
+  FROM gold.fct_ar_aging
+  GROUP BY branch_code, region, snapshot_date
+),
+cash_metrics AS (
+  SELECT
+    branch_code,
+    region,
+    payment_date AS date_day,
+    SUM(payment_amount) AS total_payments,
+    SUM(CASE WHEN match_status = 'UNAPPLIED' THEN payment_amount ELSE 0 END) AS unapplied_cash,
+    AVG(days_to_pay) AS avg_days_to_pay,
+    CASE
+      WHEN SUM(payment_amount) = 0 THEN NULL
+      ELSE 100 * SUM(CASE WHEN match_status = 'UNAPPLIED' THEN payment_amount ELSE 0 END) / SUM(payment_amount)
+    END AS unapplied_cash_pct
+  FROM gold.fct_cash_application
+  GROUP BY branch_code, region, payment_date
+),
+credit_metrics AS (
+  SELECT
+    branch_code,
+    region,
+    snapshot_date AS date_day,
+    SUM(CASE WHEN over_limit_flag = 1 THEN 1 ELSE 0 END) AS customers_over_limit,
+    SUM(CASE WHEN suspended_with_exposure_flag = 1 THEN 1 ELSE 0 END) AS suspended_exposure_customers
+  FROM gold.fct_credit_risk
+  GROUP BY branch_code, region, snapshot_date
 )
 SELECT
-    region,
-    branch_code,
-    customer_id,
-    customer_name,
-    credit_terms,
-    customer_status,
-    customer_since,
-    credit_limit,
-    outstanding_ar,
-    ar_90_plus_amount,
-    open_contract_count,
-    open_contract_value,
-    CASE WHEN credit_limit IS NULL OR credit_limit = 0 THEN NULL
-         ELSE ROUND(outstanding_ar / credit_limit * 100, 2) END AS credit_utilization_pct,
-    CASE WHEN credit_limit IS NOT NULL AND outstanding_ar > credit_limit THEN 1 ELSE 0 END AS customer_over_limit_flag,
-    CASE WHEN customer_status = 'Suspended' AND (outstanding_ar > 0 OR open_contract_count > 0) THEN 1 ELSE 0 END AS suspended_with_exposure_flag
-FROM customer_exposure;
+  r.branch_code,
+  r.region,
+  r.date_day,
+  rental_revenue,
+  a.total_ar,
+  a.ar_90_plus,
+  a.dso,
+  c.total_payments,
+  c.unapplied_cash_pct,
+  cr.customers_over_limit,
+  cr.suspended_exposure_customers,
+  LEAST(100,
+    0.30 * COALESCE(100 * rental_revenue / NULLIF(MAX(rental_revenue) OVER (PARTITION BY r.date_day),0),0) +
+    0.30 * COALESCE(100 - a.dso,0) +
+    0.20 * COALESCE(100 - c.unapplied_cash_pct,0) +
+    0.20 * COALESCE(100 - 10 * cr.customers_over_limit,0)
+  ) AS health_score
+FROM revenue_metrics r
+LEFT JOIN ar_metrics a
+  ON r.branch_code = a.branch_code AND r.region = a.region AND r.date_day = a.date_day
+LEFT JOIN cash_metrics c
+  ON r.branch_code = c.branch_code AND r.region = c.region AND r.date_day = c.date_day
+LEFT JOIN credit_metrics cr
+  ON r.branch_code = cr.branch_code AND r.region = cr.region AND r.date_day = cr.date_day;
 ```
-- **Recommended LVDash Widget:** Heatmap, KPI cards, scatter/bubble chart, sorted detail table
-- **Data Fields:** `region`, `branch_code`, `customer_id`, `customer_name`, `credit_terms`, `customer_status`, `customer_since`, `credit_limit`, `outstanding_ar`, `ar_90_plus_amount`, `open_contract_count`, `credit_utilization_pct`, `customer_over_limit_flag`, `suspended_with_exposure_flag`
-- **Calculations:** Credit Utilization %, Customers Over Limit count and amount, AR 90+ by Customer, Suspended Customers with Open Exposure
-- **Interactivity:** Region/branch/customer status filters, drill-through to invoice and contract detail, over-limit toggle parameter, trend drill-up to network exposure trend
-- **Justification:** Heatmaps quickly identify concentration of credit risk by branch, while a sortable detail table allows credit teams to act on the highest-risk customers.
-- **Optimization Tips:** Snapshot customer exposure daily, separate executive aggregate datasets from customer-level detail, Z-order by `customer_id`, `branch_code`, and limit high-cardinality detail rendering through parameterized filters.
+- **Recommended LVDash Widget:** Counter/KPI cards for Overall Health Score and four domain scores
+- **Data Fields:** `branch_code`, `region`, `date_day`, `health_score`, `rental_revenue`, `dso`, `ar_90_plus`, `unapplied_cash_pct`, `customers_over_limit`
+- **Calculations:** Weighted health score, DSO, AR 90+ %, unapplied cash %, domain normalization
+- **Interactivity:** Region and branch filters, date granularity parameter (daily/weekly), click-through from KPI card to supporting tab, drill-down network -> region -> branch
+- **Justification:** KPI cards are best for executive monitoring because they immediately show current performance against target thresholds and support fast exception detection.
+- **Optimization Tips:** Materialize daily and weekly aggregates, cache scorecard datasets, partition by period/date, Z-ORDER on `region`, `branch_code`, and `date_day`, and avoid recomputing window-based normalization on every dashboard refresh.
 
-## 4. Supporting Semantic Model Recommendations
+### 2.2 Revenue Trend vs DSO Trend
 
-### 4.1 Recommended Data Model
-| Layer | Object | Type | Purpose |
-|---|---|---|---|
-| Silver | `si_rental_contracts` | Core detail table | Contract grain and branch/equipment/sales attributes |
-| Silver | `si_invoices` | Core detail table | Billing and AR basis |
-| Silver | `si_cash_receipts` | Core detail table | Payment and cash application basis |
-| Silver | `si_customer_master` | Dimension-style master table | Customer risk and status attributes |
-| Silver | `si_branch_employee` | Organization dimension support | Branch, region, sales rep, collector context |
-| Gold | `fct_rental_revenue` | Fact table / view | Revenue and billing aggregates |
-| Gold | `fct_ar_aging` | Snapshot fact table | AR aging balances and buckets |
-| Gold | `fct_cash_application` | Fact table | Applied and unapplied cash metrics |
-| Gold | `fct_credit_risk` | Snapshot fact table | Customer exposure and risk metrics |
-| Gold | `dim_date`, `dim_branch`, `dim_customer`, `dim_employee` | Conformed dimensions | Shared dashboard slicing and drill paths |
+- **Data Element:** Period trend of rental revenue and DSO
+- **SQL Query:**
+```sql
+SELECT
+  d.period_start,
+  r.region,
+  r.branch_code,
+  SUM(r.net_billings) AS rental_revenue,
+  CASE
+    WHEN SUM(a.credit_sales_amount) = 0 THEN NULL
+    ELSE (SUM(a.ar_outstanding_amount) / SUM(a.credit_sales_amount)) * MAX(a.days_in_period)
+  END AS dso
+FROM gold.fct_rental_revenue r
+JOIN gold.dim_date d
+  ON r.date_key = d.date_key
+LEFT JOIN gold.fct_ar_aging a
+  ON r.branch_code = a.branch_code
+ AND r.region = a.region
+ AND d.date_day = a.snapshot_date
+GROUP BY d.period_start, r.region, r.branch_code
+ORDER BY d.period_start;
+```
+- **Recommended LVDash Widget:** Combo chart with bars for revenue and line for DSO
+- **Data Fields:** `period_start`, `region`, `branch_code`, `rental_revenue`, `dso`
+- **Calculations:** Sum of net billings, DSO ratio by period
+- **Interactivity:** Date range filter, region/branch slicers, drill-up week -> month -> quarter, cross-filter to AR tab
+- **Justification:** A combo chart is ideal because revenue and DSO have different scales but should be compared across the same timeline.
+- **Optimization Tips:** Pre-aggregate by chosen period grain, use Lakeview parameterized period selection, and reuse one dataset across trend widgets instead of issuing separate queries.
 
-### 4.2 Recommended Transformations
-- Standardize branch-region hierarchy into a reusable `dim_branch`.
-- Create `dim_employee` with role flags for sales rep and collector.
-- Persist aging snapshots daily instead of recomputing on the fly.
-- Build metric-ready gold facts for scorecards, collector performance, and credit risk.
-- Apply deduplication on customer master before risk aggregation.
+### 2.3 AR 90+ Leaderboard by Branch
 
-## 5. Overall Dashboard Design
+- **Data Element:** High-risk branches ranked by AR 90+ exposure
+- **SQL Query:**
+```sql
+SELECT
+  region,
+  branch_code,
+  SUM(ar_outstanding_amount) AS total_ar,
+  SUM(CASE WHEN aging_bucket = '90+' THEN ar_outstanding_amount ELSE 0 END) AS ar_90_plus_amount,
+  CASE
+    WHEN SUM(ar_outstanding_amount) = 0 THEN NULL
+    ELSE 100 * SUM(CASE WHEN aging_bucket = '90+' THEN ar_outstanding_amount ELSE 0 END) / SUM(ar_outstanding_amount)
+  END AS ar_90_plus_pct
+FROM gold.fct_ar_aging
+WHERE snapshot_date BETWEEN :start_date AND :end_date
+GROUP BY region, branch_code
+ORDER BY ar_90_plus_pct DESC, ar_90_plus_amount DESC;
+```
+- **Recommended LVDash Widget:** Horizontal bar chart
+- **Data Fields:** `region`, `branch_code`, `total_ar`, `ar_90_plus_amount`, `ar_90_plus_pct`
+- **Calculations:** Total AR, 90+ bucket amount, 90+ percentage
+- **Interactivity:** Region filter, click bar to drill to customer or invoice aging detail, date snapshot parameter
+- **Justification:** Horizontal bars clearly support ranking and make it easy to compare branch risk exposure side by side.
+- **Optimization Tips:** Build snapshot summary table by branch/date, partition by `snapshot_date`, Z-ORDER on `branch_code`, and prune date range early.
 
-### 5.1 Layout Suggestions
+### 2.4 Aging Drivers Table by Branch and Customer
+
+- **Data Element:** Customers driving aged receivables risk
+- **SQL Query:**
+```sql
+SELECT
+  a.snapshot_date,
+  a.region,
+  a.branch_code,
+  a.customer_id,
+  c.customer_name,
+  a.collector_id,
+  SUM(a.ar_outstanding_amount) AS total_ar,
+  SUM(CASE WHEN a.aging_bucket = '90+' THEN a.ar_outstanding_amount ELSE 0 END) AS ar_90_plus_amount,
+  MAX(a.days_past_due) AS max_days_past_due,
+  COUNT(DISTINCT a.invoice_id) AS open_invoice_count
+FROM gold.fct_ar_aging a
+JOIN gold.dim_customer c
+  ON a.customer_id = c.customer_id
+WHERE a.snapshot_date = :snapshot_date
+GROUP BY a.snapshot_date, a.region, a.branch_code, a.customer_id, c.customer_name, a.collector_id
+ORDER BY ar_90_plus_amount DESC, total_ar DESC;
+```
+- **Recommended LVDash Widget:** Table
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `customer_id`, `customer_name`, `collector_id`, `total_ar`, `ar_90_plus_amount`, `max_days_past_due`, `open_invoice_count`
+- **Calculations:** Sum outstanding, max days past due, invoice count
+- **Interactivity:** Search, sort, filter by collector/customer status, drill-through to invoice list
+- **Justification:** A table is the best choice when users need exact values, operational prioritization, and the ability to inspect customer-level drivers.
+- **Optimization Tips:** Keep detail table on-demand with selective filters; do not preload all invoice rows into the landing tab. Use a summary dataset for the main table and separate detail dataset for drill-through.
+
+### 2.5 Rental Revenue & Billing KPI Strip
+
+- **Data Element:** Revenue, gross billings, net billings, ADR, revenue per contract, credit memo rate
+- **SQL Query:**
+```sql
+SELECT
+  region,
+  branch_code,
+  sales_rep_id,
+  equipment_class,
+  date_day,
+  SUM(CASE WHEN invoice_type = 'STANDARD' THEN invoice_amount ELSE 0 END) AS gross_billings,
+  SUM(CASE WHEN invoice_type = 'CREDIT_MEMO' THEN ABS(invoice_amount) ELSE 0 END) AS credit_memo_amount,
+  SUM(CASE WHEN invoice_type = 'STANDARD' THEN invoice_amount ELSE 0 END)
+    - SUM(CASE WHEN invoice_type = 'CREDIT_MEMO' THEN ABS(invoice_amount) ELSE 0 END) AS net_billings,
+  SUM(rental_revenue_amount) AS rental_revenue,
+  CASE WHEN SUM(billed_rental_days) = 0 THEN NULL ELSE SUM(rental_revenue_amount) / SUM(billed_rental_days) END AS adr,
+  CASE WHEN COUNT(DISTINCT contract_id) = 0 THEN NULL ELSE SUM(rental_revenue_amount) / COUNT(DISTINCT contract_id) END AS revenue_per_contract,
+  CASE WHEN SUM(CASE WHEN invoice_type = 'STANDARD' THEN invoice_amount ELSE 0 END) = 0 THEN NULL
+       ELSE SUM(CASE WHEN invoice_type = 'CREDIT_MEMO' THEN ABS(invoice_amount) ELSE 0 END)
+            / SUM(CASE WHEN invoice_type = 'STANDARD' THEN invoice_amount ELSE 0 END)
+  END AS credit_memo_rate
+FROM gold.fct_rental_revenue
+GROUP BY region, branch_code, sales_rep_id, equipment_class, date_day;
+```
+- **Recommended LVDash Widget:** KPI cards
+- **Data Fields:** `region`, `branch_code`, `sales_rep_id`, `equipment_class`, `date_day`, `gross_billings`, `net_billings`, `rental_revenue`, `adr`, `revenue_per_contract`, `credit_memo_rate`
+- **Calculations:** Net billings, ADR, revenue per contract, credit memo rate
+- **Interactivity:** Period, branch, equipment class, sales rep filters; drill from KPI to invoice detail
+- **Justification:** KPI cards are suitable for headline metrics where current-period values need immediate visibility.
+- **Optimization Tips:** Use a daily billing aggregate, isolate standard invoices and credit memos in ETL, and precompute billed rental days for ADR to reduce repeated calculations.
+
+### 2.6 Revenue Trend by Branch
+
+- **Data Element:** Rental revenue trend over time by branch
+- **SQL Query:**
+```sql
+SELECT
+  date_day,
+  region,
+  branch_code,
+  SUM(rental_revenue_amount) AS rental_revenue
+FROM gold.fct_rental_revenue
+WHERE date_day BETWEEN :start_date AND :end_date
+GROUP BY date_day, region, branch_code
+ORDER BY date_day;
+```
+- **Recommended LVDash Widget:** Line chart
+- **Data Fields:** `date_day`, `region`, `branch_code`, `rental_revenue`
+- **Calculations:** Sum revenue by time
+- **Interactivity:** Region and branch filters, drill from branch to sales rep, date granularity parameter
+- **Justification:** A line chart is most appropriate for showing time-based movement and identifying growth or decline patterns.
+- **Optimization Tips:** Aggregate at daily grain once, then derive weekly/monthly views from date dimension. Reuse this dataset in multiple trend widgets.
+
+### 2.7 Equipment Class Mix
+
+- **Data Element:** Revenue distribution by equipment class
+- **SQL Query:**
+```sql
+SELECT
+  date_trunc('month', date_day) AS month_start,
+  region,
+  branch_code,
+  equipment_class,
+  SUM(rental_revenue_amount) AS rental_revenue
+FROM gold.fct_rental_revenue
+GROUP BY date_trunc('month', date_day), region, branch_code, equipment_class
+ORDER BY month_start, rental_revenue DESC;
+```
+- **Recommended LVDash Widget:** Stacked bar chart
+- **Data Fields:** `month_start`, `region`, `branch_code`, `equipment_class`, `rental_revenue`
+- **Calculations:** Revenue by class and period
+- **Interactivity:** Region, branch, month filters; cross-filter to detail table
+- **Justification:** Stacked bars effectively show both total branch revenue and the contribution of each equipment class.
+- **Optimization Tips:** Pre-aggregate monthly class mix and limit number of displayed classes to top contributors plus "Other" when necessary.
+
+### 2.8 Sales Rep / Contract Billing Detail
+
+- **Data Element:** Detailed revenue and billing performance by sales rep and contract
+- **SQL Query:**
+```sql
+SELECT
+  region,
+  branch_code,
+  sales_rep_id,
+  contract_id,
+  contract_status,
+  equipment_class,
+  COUNT(DISTINCT invoice_id) AS invoice_count,
+  SUM(rental_revenue_amount) AS rental_revenue,
+  SUM(net_billings) AS net_billings,
+  SUM(credit_memo_amount) AS credit_memo_amount
+FROM gold.fct_rental_revenue
+WHERE date_day BETWEEN :start_date AND :end_date
+GROUP BY region, branch_code, sales_rep_id, contract_id, contract_status, equipment_class
+ORDER BY rental_revenue DESC;
+```
+- **Recommended LVDash Widget:** Table
+- **Data Fields:** `region`, `branch_code`, `sales_rep_id`, `contract_id`, `contract_status`, `equipment_class`, `invoice_count`, `rental_revenue`, `net_billings`, `credit_memo_amount`
+- **Calculations:** Invoice count, revenue, net billings, credit memo amount
+- **Interactivity:** Drill-down region -> branch -> sales rep -> contract; export table; filter by contract status
+- **Justification:** A detailed table supports operational review and exception analysis down to contract level.
+- **Optimization Tips:** Use query-based pagination or a filtered dataset for large result sets; do not expose unrestricted full-history contract detail on the default page.
+
+### 2.9 AR Aging by Bucket and Branch
+
+- **Data Element:** Outstanding AR split by aging bucket across branches
+- **SQL Query:**
+```sql
+SELECT
+  snapshot_date,
+  region,
+  branch_code,
+  aging_bucket,
+  SUM(ar_outstanding_amount) AS ar_amount
+FROM gold.fct_ar_aging
+WHERE snapshot_date = :snapshot_date
+GROUP BY snapshot_date, region, branch_code, aging_bucket
+ORDER BY branch_code, aging_bucket;
+```
+- **Recommended LVDash Widget:** Stacked bar chart
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `aging_bucket`, `ar_amount`
+- **Calculations:** Sum AR by bucket
+- **Interactivity:** Snapshot date filter, region/branch filters, click a bucket to open invoice detail
+- **Justification:** Stacked bars make fixed aging bucket composition easy to compare across branches.
+- **Optimization Tips:** Ensure aging buckets are materialized in the Gold fact; avoid recalculating bucket logic in dashboard SQL.
+
+### 2.10 AR KPI Cards
+
+- **Data Element:** Total AR Outstanding, AR 90+ %, DSO, Best Possible DSO
+- **SQL Query:**
+```sql
+SELECT
+  snapshot_date,
+  region,
+  branch_code,
+  SUM(ar_outstanding_amount) AS total_ar_outstanding,
+  CASE WHEN SUM(ar_outstanding_amount) = 0 THEN NULL
+       ELSE 100 * SUM(CASE WHEN aging_bucket = '90+' THEN ar_outstanding_amount ELSE 0 END) / SUM(ar_outstanding_amount)
+  END AS ar_90_plus_pct,
+  CASE WHEN SUM(credit_sales_amount) = 0 THEN NULL
+       ELSE (SUM(ar_outstanding_amount) / SUM(credit_sales_amount)) * MAX(days_in_period)
+  END AS dso,
+  CASE WHEN SUM(credit_sales_amount) = 0 THEN NULL
+       ELSE (SUM(CASE WHEN aging_bucket IN ('0-30','31-60') THEN ar_outstanding_amount ELSE 0 END) / SUM(credit_sales_amount)) * MAX(days_in_period)
+  END AS best_possible_dso
+FROM gold.fct_ar_aging
+WHERE snapshot_date = :snapshot_date
+GROUP BY snapshot_date, region, branch_code;
+```
+- **Recommended LVDash Widget:** KPI cards
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `total_ar_outstanding`, `ar_90_plus_pct`, `dso`, `best_possible_dso`
+- **Calculations:** Sum outstanding, AR 90+ %, DSO, Best Possible DSO
+- **Interactivity:** Snapshot date and branch filters, drill to aging trend
+- **Justification:** KPI cards are ideal for quickly surfacing collections health indicators.
+- **Optimization Tips:** Store daily branch snapshot metrics in aggregate table and reuse for KPI and trend sections.
+
+### 2.11 Collector / Customer / Invoice Aging Detail
+
+- **Data Element:** Collections worklist with invoice detail
+- **SQL Query:**
+```sql
+SELECT
+  a.snapshot_date,
+  a.region,
+  a.branch_code,
+  a.collector_id,
+  a.customer_id,
+  c.customer_name,
+  a.invoice_id,
+  a.due_date,
+  a.days_past_due,
+  a.aging_bucket,
+  a.ar_outstanding_amount
+FROM gold.fct_ar_aging a
+JOIN gold.dim_customer c
+  ON a.customer_id = c.customer_id
+WHERE a.snapshot_date = :snapshot_date
+  AND (:collector_id IS NULL OR a.collector_id = :collector_id)
+ORDER BY a.collector_id, a.customer_id, a.days_past_due DESC;
+```
+- **Recommended LVDash Widget:** Table
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `collector_id`, `customer_id`, `customer_name`, `invoice_id`, `due_date`, `days_past_due`, `aging_bucket`, `ar_outstanding_amount`
+- **Calculations:** Days past due, outstanding amount
+- **Interactivity:** Drill-down region -> branch -> collector -> customer -> invoice, filter by aging bucket, export detail
+- **Justification:** A detail table is necessary for collections actioning and drill-through validation.
+- **Optimization Tips:** Push filters for `snapshot_date`, `collector_id`, and `aging_bucket` into the query, and use clustering/Z-ORDER on `collector_id`, `customer_id`, `invoice_id`.
+
+### 2.12 Cash Application KPI Cards
+
+- **Data Element:** Cash collected, CEI, average days to pay, % invoices paid on time, unapplied cash $ and %
+- **SQL Query:**
+```sql
+SELECT
+  period_start,
+  region,
+  branch_code,
+  collector_id,
+  SUM(payment_amount) AS cash_collected,
+  CASE
+    WHEN SUM(beginning_ar + credit_sales_amount - ending_current_ar) = 0 THEN NULL
+    ELSE 100 * SUM(beginning_ar + credit_sales_amount - ending_total_ar)
+         / SUM(beginning_ar + credit_sales_amount - ending_current_ar)
+  END AS cei,
+  AVG(days_to_pay) AS avg_days_to_pay,
+  100 * AVG(CASE WHEN paid_on_time_flag = 1 THEN 1.0 ELSE 0.0 END) AS pct_invoices_paid_on_time,
+  SUM(CASE WHEN match_status = 'UNAPPLIED' THEN payment_amount ELSE 0 END) AS unapplied_cash_amount,
+  CASE WHEN SUM(payment_amount) = 0 THEN NULL
+       ELSE 100 * SUM(CASE WHEN match_status = 'UNAPPLIED' THEN payment_amount ELSE 0 END) / SUM(payment_amount)
+  END AS unapplied_cash_pct
+FROM gold.fct_cash_application
+GROUP BY period_start, region, branch_code, collector_id;
+```
+- **Recommended LVDash Widget:** KPI cards
+- **Data Fields:** `period_start`, `region`, `branch_code`, `collector_id`, `cash_collected`, `cei`, `avg_days_to_pay`, `pct_invoices_paid_on_time`, `unapplied_cash_amount`, `unapplied_cash_pct`
+- **Calculations:** CEI, average days to pay, paid on time %, unapplied cash metrics
+- **Interactivity:** Period filters, collector selector, branch/region slicers, drill-through to payment detail
+- **Justification:** KPI cards support fast performance review for collectors and collections leadership.
+- **Optimization Tips:** Precompute CEI inputs during ETL because CEI window logic can be expensive and error-prone if recomputed ad hoc.
+
+### 2.13 Collector Leaderboard
+
+- **Data Element:** Ranked collector performance comparison
+- **SQL Query:**
+```sql
+SELECT
+  period_start,
+  region,
+  branch_code,
+  collector_id,
+  SUM(payment_amount) AS cash_collected,
+  AVG(days_to_pay) AS avg_days_to_pay,
+  CASE WHEN SUM(payment_amount) = 0 THEN NULL
+       ELSE 100 * SUM(CASE WHEN match_status = 'UNAPPLIED' THEN payment_amount ELSE 0 END) / SUM(payment_amount)
+  END AS unapplied_cash_pct,
+  RANK() OVER (PARTITION BY period_start, region, branch_code ORDER BY SUM(payment_amount) DESC) AS collector_rank
+FROM gold.fct_cash_application
+GROUP BY period_start, region, branch_code, collector_id
+ORDER BY period_start, collector_rank;
+```
+- **Recommended LVDash Widget:** Horizontal bar chart
+- **Data Fields:** `period_start`, `region`, `branch_code`, `collector_id`, `cash_collected`, `avg_days_to_pay`, `unapplied_cash_pct`, `collector_rank`
+- **Calculations:** Collector ranking, sum payments, average days to pay
+- **Interactivity:** Region/branch/period filters, click collector to open detail table
+- **Justification:** A ranked bar chart highlights relative collector performance better than a table alone.
+- **Optimization Tips:** Materialize collector-period aggregates and avoid ranking across massive detail-level receipt tables during dashboard rendering.
+
+### 2.14 Unapplied Cash Detail
+
+- **Data Element:** Payments not applied to invoices
+- **SQL Query:**
+```sql
+SELECT
+  payment_date,
+  region,
+  branch_code,
+  collector_id,
+  customer_id,
+  receipt_id,
+  payment_method,
+  payment_amount,
+  match_status
+FROM gold.fct_cash_application
+WHERE match_status = 'UNAPPLIED'
+  AND payment_date BETWEEN :start_date AND :end_date
+ORDER BY payment_date DESC, payment_amount DESC;
+```
+- **Recommended LVDash Widget:** Table
+- **Data Fields:** `payment_date`, `region`, `branch_code`, `collector_id`, `customer_id`, `receipt_id`, `payment_method`, `payment_amount`, `match_status`
+- **Calculations:** Unapplied payment amount totals via widget aggregations
+- **Interactivity:** Filter by payment method, collector, branch; drill to receipt detail
+- **Justification:** Unapplied cash is an operational exception list and is best managed in a sortable detail table.
+- **Optimization Tips:** Maintain a small exception dataset or view for unapplied cash rather than filtering a full cash fact repeatedly.
+
+### 2.15 Customer Credit Risk KPI Cards
+
+- **Data Element:** Customers over limit, suspended customers with exposure, credit utilization
+- **SQL Query:**
+```sql
+SELECT
+  snapshot_date,
+  region,
+  branch_code,
+  COUNT(DISTINCT CASE WHEN credit_utilization_pct > 100 THEN customer_id END) AS customers_over_limit,
+  SUM(CASE WHEN credit_utilization_pct > 100 THEN outstanding_ar_amount ELSE 0 END) AS over_limit_amount,
+  COUNT(DISTINCT CASE WHEN customer_status = 'Suspended' AND (outstanding_ar_amount > 0 OR open_contract_count > 0) THEN customer_id END) AS suspended_with_exposure,
+  AVG(credit_utilization_pct) AS avg_credit_utilization_pct
+FROM gold.fct_credit_risk
+GROUP BY snapshot_date, region, branch_code;
+```
+- **Recommended LVDash Widget:** KPI cards
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `customers_over_limit`, `over_limit_amount`, `suspended_with_exposure`, `avg_credit_utilization_pct`
+- **Calculations:** Over-limit count and amount, suspended exposure count, average credit utilization
+- **Interactivity:** Branch and customer status filters, snapshot date parameter, drill-through to customer details
+- **Justification:** Credit leadership needs immediate counts and exposure values for risk monitoring, which KPI cards convey clearly.
+- **Optimization Tips:** Snapshot the credit risk fact daily or weekly; do not derive customer exposure directly from AR detail in every dashboard query.
+
+### 2.16 Credit Utilization Heatmap by Branch
+
+- **Data Element:** Branch-level concentration of customer credit utilization
+- **SQL Query:**
+```sql
+SELECT
+  snapshot_date,
+  region,
+  branch_code,
+  customer_id,
+  customer_name,
+  credit_utilization_pct
+FROM gold.fct_credit_risk
+WHERE snapshot_date = :snapshot_date;
+```
+- **Recommended LVDash Widget:** Heatmap
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `customer_id`, `customer_name`, `credit_utilization_pct`
+- **Calculations:** Credit utilization percentage
+- **Interactivity:** Region and branch filters, click heat cell to open customer detail
+- **Justification:** A heatmap is effective for quickly spotting concentration of over-limit or near-limit accounts across branches.
+- **Optimization Tips:** Limit displayed population to active customers with exposure; use a summarized branch/customer snapshot dataset.
+
+### 2.17 Customer Exposure Detail
+
+- **Data Element:** Customer-level risk detail with open exposure
+- **SQL Query:**
+```sql
+SELECT
+  snapshot_date,
+  region,
+  branch_code,
+  customer_id,
+  customer_name,
+  customer_status,
+  credit_terms,
+  credit_limit,
+  outstanding_ar_amount,
+  ar_90_plus_amount,
+  open_contract_count,
+  open_contract_value,
+  credit_utilization_pct,
+  customer_since_date
+FROM gold.fct_credit_risk
+WHERE snapshot_date = :snapshot_date
+ORDER BY credit_utilization_pct DESC, outstanding_ar_amount DESC;
+```
+- **Recommended LVDash Widget:** Table
+- **Data Fields:** `snapshot_date`, `region`, `branch_code`, `customer_id`, `customer_name`, `customer_status`, `credit_terms`, `credit_limit`, `outstanding_ar_amount`, `ar_90_plus_amount`, `open_contract_count`, `open_contract_value`, `credit_utilization_pct`, `customer_since_date`
+- **Calculations:** Credit utilization %, exposure totals, 90+ amount
+- **Interactivity:** Search by customer name, filter by status and over-limit flag, drill-through to invoice/contract detail
+- **Justification:** A detail table supports actionability for credit teams and is appropriate for sorted high-risk review.
+- **Optimization Tips:** Mask or restrict PII fields according to role-based access; use row-level filtering by branch/region.
+
+## 3. Overall Dashboard Design
+
+### 3.1 Layout Suggestions
+
 | Tab | Purpose | Suggested Layout |
 |---|---|---|
-| Executive Summary | Executive scorecards and cross-domain health view | Top row KPI tiles, middle trend row, bottom leaderboard + drivers table |
-| Revenue & Billing | Revenue performance and billing quality | Top KPI strip, middle combo chart and equipment mix, bottom sales rep/contract detail table |
-| AR Aging | Past-due exposure and collections prioritization | Top KPI cards, middle stacked aging chart, bottom invoice detail and pivot |
-| Cash Application | Collector efficiency and unapplied cash | Top KPI cards, middle collector leaderboard and trend, bottom unapplied cash detail |
-| Credit Risk | Exposure, over-limit, and suspended customer monitoring | Top KPI cards, middle branch heatmap/scatter, bottom customer detail table |
+| Executive Scorecard | Enterprise health overview | Top row KPI cards for overall and domain scores; middle row combo trend charts; bottom row risk leaderboard and driver table |
+| Revenue & Billing | Revenue and billing analysis | Top KPI strip; middle left revenue trend; middle right equipment class mix; bottom detail table by sales rep/contract |
+| AR Aging & Collections | Receivables monitoring and worklist | Top KPI cards; middle stacked aging chart by branch; bottom invoice detail table with collector/customer filters |
+| Cash Application | Collector performance and unapplied cash | Top KPI cards; middle collector leaderboard; bottom unapplied cash detail table |
+| Customer Credit Risk | Exposure monitoring | Top KPI cards; middle branch/customer heatmap; bottom customer exposure table |
 
-### 5.2 Widget Sizing / Positioning
-- Use a 12-column Lakeview grid.
-- Keep 4 to 6 KPI cards in the top row at equal width.
-- Use full-width trend charts where time-series interpretation is critical.
-- Use side-by-side charts only where cross-comparison is helpful, such as branch revenue vs equipment mix.
-- Reserve bottom sections for detailed tables with pagination and export enabled.
+### 3.2 Grid and Widget Sizing Guidance
+- Use a 12-column grid-based Lakeview canvas.
+- Reserve first row for 4 to 6 KPI cards with consistent sizing.
+- Place trend and comparison charts in the second row with 6-column widths.
+- Use full-width operational detail tables in the bottom section of each tab.
+- Keep related filters pinned at the top or in a left-side filter panel for all tabs.
+- Use tab-specific datasets only where needed; otherwise share common conformed datasets across tabs.
 
-### 5.3 Query Optimization
-- Pre-aggregate daily, weekly, and monthly datasets in Gold.
-- Enable query result caching for heavily reused datasets.
-- Partition snapshot facts by business date or snapshot date.
-- Z-order Delta tables on `branch_code`, `customer_id`, `invoice_id`, and `contract_id` based on access patterns.
-- Use materialized views for executive scorecards and branch leaderboards.
-- Size SQL warehouses to match concurrent dashboard loads; use serverless or pro warehouse with auto-stop and multi-cluster for peak usage.
-- Reuse a small number of shared datasets across multiple widgets instead of issuing similar SQL repeatedly.
-- Avoid oversized all-purpose datasets feeding many unrelated visuals.
+### 3.3 Color Scheme
 
-### 5.4 Color Scheme
-| Purpose | Recommended Color |
+| Use Case | Recommended Color |
 |---|---|
-| Positive / on target | Green (`#2E7D32`) |
-| Warning / moderate risk | Amber (`#F9A825`) |
-| Critical / overdue / over limit | Red (`#C62828`) |
-| Neutral / baseline | Blue (`#1565C0`) |
-| Supporting background / muted | Light Gray (`#ECEFF1`) |
+| Positive / healthy | `#2E7D32` green |
+| Warning / watchlist | `#F9A825` amber |
+| Critical / overdue / over-limit | `#C62828` red |
+| Neutral / supporting metrics | `#1565C0` blue |
+| Background / secondary | `#ECEFF1` light gray |
 
-### 5.5 Typography
-- Use clear sans-serif fonts such as Inter, Arial, or Helvetica.
-- KPI numbers should be bold and larger than labels.
-- Keep chart titles concise and action-oriented.
-- Use consistent number formatting for currency, percentages, and whole-number counts.
-- Minimize visual clutter in tables with aligned decimals and conditional formatting only where meaningful.
+Use semantic threshold coloring for KPI cards, especially for health score, AR 90+ %, CEI, unapplied cash %, and credit utilization.
 
-### 5.6 Interactive Elements
-- Global filters: Date range, region, branch, equipment class, customer status, collector, sales rep.
-- Parameters: Period type (day/week/month/quarter), top N ranking, over-limit threshold, metric selector.
-- Cross-filtering: Click branch bar/collector bar/aging bucket segment to filter related tables and KPIs.
-- Drill-down: Network -> Region -> Branch -> Sales Rep/Collector -> Customer/Contract/Invoice.
-- Drill-through: From KPI or chart to invoice detail, contract detail, customer risk detail, or unapplied cash detail.
-- Drill-up: Week -> Month -> Quarter and Branch -> Region -> Network.
+### 3.4 Typography
+- Use a clean sans-serif font such as Inter, Arial, or Databricks default UI font.
+- KPI titles: medium weight, 14-16 px.
+- KPI values: bold, 24-32 px.
+- Chart labels: 11-12 px.
+- Table text: 11-12 px with conditional formatting for risk columns.
+- Keep naming short and business-friendly: "AR 90+ %", "Net Billings", "Suspended w/ Exposure".
 
-## 6. Interactivity Features Table
+## 4. Query Optimization and Performance Guidance
 
-| Feature Type | Suggested Control | Applies To | Purpose |
+### 4.1 Recommended Gold Modeling Strategy
+- Build Gold facts at the exact grains required for dashboarding rather than repeatedly joining Silver tables in Lakeview.
+- Use conformed dimensions for branch, region, customer, date, employee, contract, and equipment class.
+- Store snapshot facts for AR aging and credit risk to simplify trend analysis and audit reconciliation.
+- Precompute derived metrics with stable business definitions where practical, especially aging bucket, days past due, billed rental days, paid-on-time flags, and credit utilization.
+
+### 4.2 Lakeview and Databricks SQL Optimization
+
+| Area | Recommendation |
+|---|---|
+| Dataset Reuse | Reuse a small number of curated datasets across widgets instead of issuing one raw query per widget |
+| Caching | Enable Databricks SQL result caching and dashboard dataset reuse for common filters/date ranges |
+| Materialization | Materialize daily and weekly aggregate tables for executive scorecards and collector leaderboards |
+| Partitioning | Partition large facts by `date_day`, `snapshot_date`, or `payment_date` depending on access pattern |
+| Z-Ordering | Z-ORDER large Delta tables on common filter/join columns such as `region`, `branch_code`, `customer_id`, `collector_id`, `invoice_id` |
+| SQL Warehouse Sizing | Use a right-sized SQL warehouse; avoid oversizing for lightweight scorecards and undersizing for high-concurrency executive access |
+| Filter Pushdown | Always parameterize date and branch/region filters to reduce scanned data |
+| Joins | Prefer Gold tables to avoid repeated large joins in dashboard queries |
+| Incremental Loads | Refresh scorecard aggregates incrementally by date to reduce rebuild cost |
+| Data Skipping | Maintain compact files and optimized clustering to improve Delta data skipping |
+
+### 4.3 Suggested Physical Optimizations by Table
+
+| Table | Recommended Optimization |
+|---|---|
+| `gold.fct_rental_revenue` | Partition by `date_day`; Z-ORDER by `region`, `branch_code`, `sales_rep_id`, `contract_id` |
+| `gold.fct_ar_aging` | Partition by `snapshot_date`; Z-ORDER by `branch_code`, `collector_id`, `customer_id`, `invoice_id` |
+| `gold.fct_cash_application` | Partition by `payment_date`; Z-ORDER by `branch_code`, `collector_id`, `customer_id`, `receipt_id` |
+| `gold.fct_credit_risk` | Partition by `snapshot_date`; Z-ORDER by `branch_code`, `customer_id`, `customer_status` |
+| `gold.agg_exec_scorecard_daily` | Partition by `date_day`; cache for dashboard usage |
+| `gold.agg_exec_scorecard_weekly` | Partition by `week_start`; cache for leadership reviews |
+
+## 5. Interactive Elements
+
+### 5.1 Recommended Dashboard Filters and Parameters
+
+| Feature Type | Name | Scope | Purpose |
 |---|---|---|---|
-| Filter | Date range picker | All tabs | Constrain reporting period and snapshots |
-| Filter | Region dropdown | All tabs | Support geographic rollups |
-| Filter | Branch multi-select | Executive, Revenue, AR, Cash, Credit Risk | Narrow analysis to operational unit |
-| Filter | Equipment class dropdown | Executive, Revenue | Compare rental mix and billing trends |
-| Filter | Customer status dropdown | Executive, AR, Credit Risk | Focus on active vs suspended customer exposure |
-| Filter | Collector dropdown | AR, Cash Application | Prioritize workload and performance analysis |
-| Filter | Sales rep dropdown | Executive, Revenue | Compare selling performance |
-| Parameter | Period granularity (`Day/Week/Month/Quarter`) | Executive, Revenue, AR, Cash | Dynamic time aggregation |
-| Parameter | Top N selector | Executive, Cash, Credit Risk | Limit leaderboard output for readability |
-| Parameter | Risk threshold | Credit Risk | Highlight customers above a configurable utilization % |
-| Cross-filter | Click branch/region chart elements | All tabs | Sync downstream charts and tables |
-| Cross-filter | Click aging bucket stack segment | AR Aging | Filter invoice-level detail to selected bucket |
-| Drill-down | Hierarchy navigation | Executive, Revenue, AR, Cash | Move from aggregate to operational detail |
-| Drill-through | Invoice / contract detail page | Revenue, AR, Cash, Credit Risk | Investigate root-cause records |
-| Drill up/down | Time hierarchy | Executive, Revenue, AR, Cash | Compare weekly, monthly, quarterly performance |
+| Filter | Region | Global | Narrow dashboard to region |
+| Filter | Branch | Global | Narrow to branch within selected region |
+| Filter | Date Range | Global | Control time period across trend and KPI widgets |
+| Parameter | Period Grain | Global | Switch between day/week/month/quarter views |
+| Filter | Sales Rep | Revenue tab | Focus revenue and contract views |
+| Filter | Collector | AR and Cash tabs | Focus collections performance and worklists |
+| Filter | Equipment Class | Revenue tab | Analyze revenue mix |
+| Filter | Customer Status | Credit Risk tab | Analyze active vs suspended customers |
+| Filter | Aging Bucket | AR tab | Isolate risk buckets |
+| Filter | Match Status | Cash tab | Compare applied vs unapplied cash |
+| Parameter | Top N | Executive / leaderboard tabs | Show top risk branches or collectors |
+| Drill-down | Network -> Region -> Branch -> Sales Rep/Collector -> Customer/Contract/Invoice | Multiple tabs | Hierarchical navigation |
+| Drill-through | KPI/Chart to detailed table | Multiple tabs | Move from summary metrics to operational records |
+| Cross-filter | Click chart element to filter peer widgets | Multiple tabs | Interactive exploration |
+
+### 5.2 Interactivity Features Table
+
+| Widget / Section | Filters | Parameters | Cross-Filters | Drill-Through / Drill Up-Down |
+|---|---|---|---|---|
+| Executive KPI cards | Region, Branch, Date Range | Period Grain | Yes, to trend and driver widgets | Drill-through to Revenue, AR, Cash, Credit tabs; drill-down Network -> Region -> Branch |
+| Revenue Trend | Region, Branch, Equipment Class | Period Grain | Yes | Drill-up Week -> Month -> Quarter; drill-down Branch -> Sales Rep |
+| AR Aging Stacked Bar | Region, Branch, Snapshot Date | Top N | Yes | Drill-down Branch -> Collector -> Customer -> Invoice |
+| Collector Leaderboard | Region, Branch, Period | Top N | Yes | Drill-through to collector payment detail; drill-up Week -> Month |
+| Credit Heatmap | Region, Branch, Snapshot Date | Over-limit threshold | Yes | Drill-through to customer exposure detail |
+| Detail Tables | All relevant tab filters | Export or pagination controls | Limited | Drill-through to invoice/contract/receipt detail records |
+
+## 6. Validation and Data Quality Recommendations
+
+| Validation Area | Recommendation |
+|---|---|
+| Revenue Reconciliation | Ensure net billings = gross billings - credit memos and validate invoice signs by invoice type |
+| Aging Reconciliation | Sum of aging buckets must reconcile to total AR outstanding per snapshot |
+| Cash Application Integrity | Applied payment totals must not exceed invoice amount; unapplied cash must be retained as explicit exceptions |
+| Credit Risk Integrity | Handle null or zero credit limit safely in utilization calculations |
+| Health Score Logic | Validate weighted domain totals produce the overall score and remain within 0-100 |
+| Duplicate Prevention | Enforce business-grain deduplication in Gold tables before dashboard exposure |
+| Freshness Monitoring | Surface latest successful load time from `silver.si_process_audit` or Gold audit metadata |
 
 ## 7. Potential Pitfalls and Mitigations
 
-| Pitfall | Impact | Mitigation |
+| Potential Pitfall | Impact | Mitigation |
 |---|---|---|
-| Joining invoices to branch employee without deduplicating branch assignments | Duplicate facts and inflated metrics | Build conformed branch and employee dimensions with effective dating and unique join logic |
-| Recomputing aging buckets at render time on large invoice history | Slow AR dashboard performance | Persist daily AR snapshot facts and cache common summaries |
-| Using a single wide dataset for every widget | Excessive scans and poor Lakeview responsiveness | Create focused reusable datasets by domain |
-| Null or zero denominators in DSO, CEI, credit utilization | Invalid percentages or runtime errors | Use `CASE` / `NULLIF` safeguards and expose data quality flags |
-| Credit memos not handled with sign-aware logic | Misstated net billings and rate metrics | Enforce invoice type rules and standard signed calculations |
-| Large shuffles on branch/customer joins | Increased latency and compute cost | Optimize Delta layout, Z-order, and pre-aggregate gold facts |
-| Overly small SQL warehouse for concurrent executive usage | Dashboard lag during business hours | Use auto-scaling warehouse sizing and result caching |
-| Excessive cross-filter dependencies on large detail tables | Interaction delays | Limit cross-filtering to summary datasets and parameterize detail retrieval |
+| Repeated joins from Silver directly in dashboards | Slow performance and inconsistent business logic | Build curated Gold fact and aggregate tables |
+| Large detail datasets reused by many widgets | High latency and excessive warehouse load | Split summary and detail datasets; use drill-through for detail |
+| Skewed branch or customer volumes | Shuffle-heavy queries and poor responsiveness | Repartition carefully and optimize Gold tables with Z-ORDER |
+| Recomputing CEI and DSO in many widgets | Logic drift and performance issues | Centralize metric definitions in Gold layer or shared SQL views |
+| Missing date filter defaults | Large scans and slow first load | Default to recent period such as current month or latest snapshot |
+| Overloaded single tab with too many visuals | Poor usability | Organize visuals into business-focused tabs |
+| Uncontrolled access to customer-level data | Security risk | Apply row-level security by branch/region and restrict executive views to aggregates where required |
+| Oversized or undersized SQL warehouse | Cost or performance problems | Size warehouse based on concurrency and dataset complexity; monitor usage |
 
-## 8. Best-Practice Notes for Databricks Lakeview
-- Keep semantic datasets business-friendly and reuse them across tabs.
-- Prefer Gold curated views for dashboarding over direct Silver access where metrics are standardized.
-- Use Delta `OPTIMIZE` and `ZORDER` on frequently filtered columns.
-- Refresh snapshots and materialized views on schedules aligned to reporting cadence.
-- Keep KPI datasets narrow and lightweight to improve first render time.
-- Separate executive-level datasets from operational drill-through detail datasets.
+## 8. Recommended Databricks SQL Views for Reuse
 
-## 9. Output URL (Clickable Hyperlinks)
+| View Name | Purpose |
+|---|---|
+| `vw_exec_scorecard_metrics` | Consolidated branch/date scorecard metrics for KPI and trends |
+| `vw_revenue_billing_summary` | Revenue and billing metrics by branch, sales rep, equipment class, and period |
+| `vw_ar_aging_summary` | AR aging metrics by snapshot, branch, bucket, and customer |
+| `vw_cash_application_summary` | Cash collected, CEI inputs, unapplied cash, collector performance |
+| `vw_credit_risk_summary` | Customer exposure, over-limit, suspended exposure, credit utilization |
+
+## 9. Final Recommendation Summary
+- Use a layered design: Silver for conformed operational data, Gold for dashboard-ready facts and aggregates, and Lakeview for business consumption.
+- Prioritize KPI cards, line/combo charts, stacked bars, heatmaps, and detail tables aligned to each report objective.
+- Build separate tabs for Executive, Revenue, AR, Cash Application, and Credit Risk to keep the dashboard intuitive.
+- Maximize reuse of curated datasets and precomputed business metrics to improve Lakeview responsiveness and governance.
+- Implement strong filter, drill-through, and row-level security patterns to support executives, regional leaders, branch managers, collectors, and finance stakeholders.
+
+---
+
+## Output URL (Clickable Hyperlinks)
 [Databricks_Dashboard_Visuals_Recommender_1.md](https://github.com/DIAscendion/Databricks_Dashboard/blob/main/DI_Databricks_Dashboard_Visuals_Recommender/Databricks_Dashboard_Visuals_Recommender_1.md)
 
-outputURL : https://github.com/DIAscendion/Databricks_Dashboard/tree/main/DI_Databricks_Dashboard_Visuals_Recommender
+Print the URL : "https://github.com/DIAscendion/Databricks_Dashboard/tree/main/DI_Databricks_Dashboard_Visuals_Recommender"
